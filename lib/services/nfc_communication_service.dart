@@ -1,39 +1,84 @@
-import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
-import 'package:nfc_emulator/nfc_emulator.dart';
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_nfc_kit/flutter_nfc_kit.dart';
 import 'package:nfc_manager/nfc_manager.dart';
+import 'package:ndef/ndef.dart' as ndef;
 
 class NfcCommunicationService {
   final NfcManager? instance = NfcManager.instance;
+  Future<bool> isNfcEnabled() async {
+    return NfcManager.instance.isAvailable();
+  }
 
-  Future<void> setUpNfc(String cardAid, String cardUid) async {
-    try {
-      NfcStatus currentDeviceNfcStatus = await NfcEmulator.nfcStatus;
-      debugPrint('Device NFC status: $currentDeviceNfcStatus');
+  void nfcEnabledChecker() async {
+    bool isNfcEnabledFOThisDevice = await isNfcEnabled();
 
-      if (currentDeviceNfcStatus == NfcStatus.enabled) {
-        await NfcEmulator.startNfcEmulator(cardAid, cardUid);
-        debugPrint('NFC emulation started successfully.');
-      } else {
-        debugPrint('NFC is not enabled on this device.');
-        // Optionally handle the case where NFC is not enabled.
-        // For example, you might want to show a dialog or a snackbar
-      }
-    } on PlatformException catch (e) {
-      debugPrint('Platform exception during NFC setup: ${e.message}');
-    } catch (e) {
-      debugPrint('An error occurred during NFC setup: $e');
-      // Handle other errors, such as invalid AID or UID.
+    if (isNfcEnabledFOThisDevice) {
+      debugPrint('nfc communication enabled here');
+    } else {
+      debugPrint('nfc is not enabled on this device ');
     }
   }
 
-  Future<void> scanCard() async {
-    NfcManager.instance.startSession(
-      onDiscovered: (NfcTag tag) async {
-        var uid = tag.data["mifare"]["identifier"];
-        debugPrint("Card UID: $uid");
-        NfcManager.instance.stopSession();
-      },
-    );
+  Future accertainifNfcEnabled() async {
+    return FlutterNfcKit.nfcAvailability;
+  }
+
+  Future writeTransactionData(
+    String amount,
+    String receiver,
+    String senderId,
+  ) async {
+    var timeStamp = DateTime.now().toIso8601String();
+    var data =
+        '{"amount: "$amount" , "to": "$receiver" , "from": "$senderId", "at": "$timeStamp"}';
+    debugPrint(data);
+    var transactonData = jsonEncode(data);
+    try {
+      var tag = await FlutterNfcKit.poll(timeout: Duration(seconds: 20));
+      if (tag.ndefAvailable == true) {
+        await FlutterNfcKit.writeNDEFRecords([
+          ndef.TextRecord(text: transactonData),
+        ]);
+
+        await FlutterNfcKit.finish();
+      }
+    } catch (e) {
+      debugPrint("❌ Error writing NFC: $e");
+    }
+  }
+
+  Future<String?> readTransactionData() async {
+    try {
+      var tag = await FlutterNfcKit.poll(timeout: Duration(seconds: 10));
+
+      if (tag.ndefAvailable == true) {
+        var records = await FlutterNfcKit.readNDEFRecords();
+
+        if (records.isNotEmpty) {
+          var transactionData =
+              records.first.payload; // Assuming the first record contains JSON
+          debugPrint("✅ Received Transaction: $transactionData");
+
+          try {
+            var parsedData = jsonDecode(transactionData as String);
+            return parsedData.toString();
+          } catch (e) {
+            debugPrint("⚠️ Error decoding JSON: $e");
+            return null;
+          }
+        } else {
+          debugPrint("⚠️ No NDEF records found.");
+          return null;
+        }
+      } else {
+        debugPrint("⚠️ No NDEF data found.");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("❌ NFC Error: $e");
+      return null;
+    }
   }
 }

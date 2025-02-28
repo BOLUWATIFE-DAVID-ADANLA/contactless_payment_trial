@@ -10,7 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   nfc_manager:
-  nfc_emulator:  
+  flutter_nfc_kit: ^3.5.2
+  ndef:
 
 dev_dependencies:
   flutter_test:
